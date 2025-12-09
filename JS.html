@@ -1,0 +1,397 @@
+<script>
+  const { createApp, ref, computed, onMounted, nextTick, watch } = Vue;
+
+  createApp({
+    setup() {
+      // --- ESTADOS REATIVOS ---
+      const loading = ref(true);
+      const loadProgress = ref(0);
+      const loadingMessage = ref('Iniciando...');
+      const showErrorBtn = ref(false);
+      const rawData = ref([]); 
+      const lastUpdate = ref('');
+      const view = ref('geral');
+      const filterStart = ref('');
+      const filterEnd = ref('');
+      
+      const months = ['JANEIRO','FEVEREIRO','MARÇO','ABRIL','MAIO','JUNHO','JULHO','AGOSTO','SETEMBRO','OUTUBRO','NOVEMBRO','DEZEMBRO'];
+      const years = [2024, 2025, 2026];
+      const currentMonthIdx = ref(new Date().getMonth());
+      const selectedYear = ref(new Date().getFullYear());
+      const showPeriodDropdown = ref(false);
+      
+      // Estado da Busca de Dossiê
+      const searchOS = ref('');
+      const dossieData = ref(null);
+      const searchPerformed = ref(false);
+      
+      // Estado de Modais
+      const modalTitle = ref('');
+      const modalRows = ref([]);
+      const modalStats = ref(null);
+      let bsModal = null;
+
+      // --- MAPEAMENTO DE DADOS (INDICES DA PLANILHA) ---
+      const mapRow = (r) => ({
+        os: r[0], 
+        dataIso: r[1], 
+        hora: r[2], 
+        tecnico: r[3], 
+        status: r[4], 
+        problemaGeral: r[5], 
+        avariaCustomiza: r[6], 
+        ofensor: r[7], 
+        custo: r[8], 
+        consideracoes: r[9],
+        
+        // Colunas extras para o Dossiê (Indices 10+)
+        recebidoPor: r[10],
+        dataHoraRecebimento: r[11],
+        dataHoraIniMont: r[12],
+        dataHoraFimMont: r[13],
+        duracaoMont: r[14],
+        tecQualidade: r[15],
+        dataHoraIniQual: r[16],
+        dataHoraFimQual: r[17],
+        duracaoQual: r[18],
+        numNF: r[19],
+        dataHoraNF: r[20],
+        detalheDivergencia: r[21],
+
+        dataDisplay: r[1] ? r[1].split('-').reverse().join('/') : '-',
+        temDivergencia: r[4] === 'Com Divergência' || r[4] === 'Quarentena'
+      });
+
+      // --- LIFECYCLE ---
+      onMounted(() => {
+        selectMonth(new Date().getMonth());
+        fetchData(false);
+      });
+
+      // --- API CALLS ---
+      const fetchData = (forceUpdate) => {
+        loading.value = true;
+        loadProgress.value = 10;
+        showErrorBtn.value = false;
+        loadingMessage.value = forceUpdate ? "Atualizando Cache Completo..." : "Buscando dados...";
+        
+        const runner = forceUpdate ? 'updateDataCache' : 'getCachedData';
+        
+        // Timeout de segurança se o servidor demorar
+        const tm = setTimeout(() => { if(loading.value) { loadingMessage.value = "Demorando..."; showErrorBtn.value = true; } }, 10000);
+
+        if (typeof google === 'undefined') {
+          // Fallback para desenvolvimento local
+          setTimeout(() => { loading.value = false; }, 1000);
+          return;
+        }
+
+        google.script.run
+          .withSuccessHandler(res => {
+            clearTimeout(tm);
+            loadProgress.value = 100;
+            
+            if (res.error) { 
+              alert(res.error); 
+              loading.value = false; 
+              return; 
+            }
+            
+            const rows = res.data ? res.data : res;
+            
+            if (Array.isArray(rows)) {
+              rawData.value = rows.map(mapRow);
+              lastUpdate.value = res.generatedAt || 'N/A';
+              setTimeout(() => { 
+                loading.value = false; 
+                nextTick(initCharts); 
+              }, 500);
+            } else {
+              alert("Formato inválido recebido do servidor");
+              loading.value = false;
+            }
+          })
+          .withFailureHandler(err => {
+            clearTimeout(tm);
+            alert("Erro no servidor: " + err.message);
+            loading.value = false;
+            showErrorBtn.value = true;
+          })
+          [runner](); 
+      };
+
+      const forceRefresh = () => fetchData(true);
+
+      // --- FILTROS DE PERÍODO ---
+      const selectMonth = (idx) => {
+        currentMonthIdx.value = idx;
+        showPeriodDropdown.value = false;
+        
+        const y = selectedYear.value;
+        let start, end;
+        
+        if (idx === -1) {
+          start = `${y}-01-01`;
+          end = `${y}-12-31`;
+        } else {
+          const lastDay = new Date(y, idx + 1, 0).getDate();
+          const mStr = String(idx + 1).padStart(2, '0');
+          start = `${y}-${mStr}-01`;
+          end = `${y}-${mStr}-${lastDay}`;
+        }
+        filterStart.value = start;
+        filterEnd.value = end;
+      };
+
+      const selectYear = (y) => {
+        selectedYear.value = y;
+        selectMonth(currentMonthIdx.value);
+      };
+      
+      const closeDropdownOnClickOutside = () => {
+         showPeriodDropdown.value = false;
+      };
+
+      const periodLabel = computed(() => {
+         if (currentMonthIdx.value === -1) return `ANO COMPLETO / ${selectedYear.value}`;
+         return `${months[currentMonthIdx.value]} / ${selectedYear.value}`;
+      });
+
+      // --- FILTRO PRINCIPAL (COMPUTED) ---
+      const filteredData = computed(() => {
+         if (!filterStart.value || !filterEnd.value) return rawData.value;
+         return rawData.value.filter(r => r.dataIso && r.dataIso >= filterStart.value && r.dataIso <= filterEnd.value);
+      });
+
+      // --- LÓGICA DE NEGÓCIOS (KPIs) ---
+      const kpi = computed(() => {
+        const d = filteredData.value;
+        const total = d.length;
+        const div = d.filter(x => x.temDivergencia);
+        const custo = _.sumBy(div, 'custo');
+        const taxa = total > 0 ? ((div.length / total) * 100).toFixed(2) : 0;
+        
+        const ofs = div.filter(x => x.ofensor && x.ofensor !== '-' && x.ofensor !== 'N/A');
+        const grp = _.countBy(ofs, 'ofensor');
+        let top = '-', topC = 0;
+        if (Object.keys(grp).length) {
+          top = Object.keys(grp).reduce((a, b) => grp[a] > grp[b] ? a : b);
+          topC = grp[top];
+        }
+
+        const quarList = d.filter(r => r.consideracoes === 'Quarentena');
+        const qCount = quarList.length;
+        const qPerc = total > 0 ? ((qCount/total)*100).toFixed(2) : 0;
+        const qCusto = _.sumBy(quarList, 'custo');
+
+        return {
+          total, divCount: div.length, taxa, custo, ofensor: top, ofensorCount: topC,
+          quarentenaCount: qCount, quarentenaPerc: qPerc, quarentenaCusto: qCusto
+        };
+      });
+
+      const tables = computed(() => {
+        const d = filteredData.value;
+        const div = d.filter(x => x.temDivergencia);
+        
+        const consG = _.groupBy(d, 'consideracoes');
+        const cons = Object.keys(consG).map(k => ({
+          nome: k, qtd: consG[k].length, perc: d.length ? ((consG[k].length/d.length)*100).toFixed(2) : 0
+        })).sort((a,b) => b.qtd - a.qtd);
+
+        const probG = _.groupBy(div, 'problemaGeral');
+        const probs = Object.keys(probG).map(k => {
+          if (k==='-' || k==='N/A') return null;
+          const items = probG[k];
+          return { nome: k, qtd: items.length, custo: _.sumBy(items, 'custo') };
+        }).filter(x=>x).sort((a,b) => b.custo - a.custo);
+
+        const quarList = d.filter(r => r.consideracoes === 'Quarentena');
+
+        return { cons, probs, quarentenaList: quarList, totalGeral: d.length };
+      });
+
+      // --- LÓGICA DE BUSCA DO DOSSIÊ ---
+      const searchMachine = () => {
+         searchPerformed.value = true;
+         dossieData.value = null;
+         if (!searchOS.value) return;
+         
+         // Busca na base completa, ignorando filtro de data
+         const found = rawData.value.find(r => r.os.toUpperCase().includes(searchOS.value.toUpperCase()));
+         if (found) {
+            dossieData.value = found;
+         }
+      };
+
+      // --- HELPERS E FORMATAÇÃO ---
+      const formatBRL = (v) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v);
+      const filterBy = (field, val) => filteredData.value.filter(x => x[field] === val);
+      
+      const getBadgeClass = (status) => {
+         if (status === 'Sucesso' || status === 'Ok') return 'bg-success';
+         if (status === 'Quarentena') return 'bg-warning text-dark';
+         return 'bg-danger';
+      };
+
+      // --- MODAIS E CSV ---
+      const openModal = (title, rows, stats = null) => {
+        modalTitle.value = title;
+        modalRows.value = rows;
+        modalStats.value = stats; 
+        if (!bsModal) bsModal = new bootstrap.Modal(document.getElementById('mainModal'));
+        bsModal.show();
+        
+        if (stats && stats.motivos) {
+           nextTick(() => {
+             const el = document.querySelector("#chart-modal-motivos");
+             if(el) {
+               el.innerHTML = '';
+               const series = Object.values(stats.motivos);
+               if (series.length > 0) {
+                 new ApexCharts(el, {
+                   chart: { type: 'donut', height: 200, background: 'transparent' },
+                   theme: { mode: 'dark', palette: 'palette1' },
+                   series: series,
+                   labels: Object.keys(stats.motivos),
+                   colors: ['#FF6500', '#0060B1', '#00f2ff', '#8257e5', '#F7DF1E', '#E65C00', '#004B8D'], 
+                   legend: { position: 'bottom', fontSize: '11px', labels: { colors: '#E0E0E0' }, itemMargin: { horizontal: 5, vertical: 0 } },
+                   dataLabels: { style: { colors: ['#FFFFFF'] }, dropShadow: { enabled: true } }
+                 }).render();
+               } else {
+                 el.innerHTML = '<div class="text-center text-muted small">Sem dados de motivos</div>';
+               }
+             }
+           });
+        }
+      };
+
+      const openQuarentenaTecModal = (tecName) => {
+         const allData = filteredData.value;
+         const prodTotal = allData.filter(r => r.tecnico === tecName).length;
+         const quarList = allData.filter(r => r.tecnico === tecName && r.consideracoes === 'Quarentena');
+         const quarCount = quarList.length;
+         const perc = prodTotal > 0 ? ((quarCount/prodTotal)*100).toFixed(2) : 0;
+         const custo = _.sumBy(quarList, 'custo');
+         const motivosObj = _.countBy(quarList, 'problemaGeral');
+         delete motivosObj['-']; delete motivosObj['N/A'];
+
+         const stats = { totalProd: prodTotal, totalQuar: quarCount, perc: perc, custo: custo, motivos: motivosObj };
+         openModal(`Relatório Técnico: ${tecName}`, quarList, stats);
+      };
+
+      const exportCSV = (data, name) => {
+        if (!data.length) return alert("Vazio");
+        const headers = Object.keys(data[0]);
+        let csv = "\uFEFF" + headers.join(";") + "\r\n";
+        data.forEach(r => csv += headers.map(h => `"${String(r[h]||'').replace(/"/g,'""')}"`).join(";") + "\r\n");
+        const link = document.createElement("a");
+        link.href = encodeURI("data:text/csv;charset=utf-8," + csv);
+        link.download = name + ".csv";
+        document.body.click(link);
+        link.click();
+      };
+
+      const scrollTo = (id) => document.getElementById(id)?.scrollIntoView({behavior:'smooth'});
+
+      // --- CHART LOGIC ---
+      const chartOpts = { chart: { background: 'transparent', toolbar: { show: false }, fontFamily: 'Poppins' }, theme: { mode: 'dark' }, dataLabels: { enabled: true }, grid: { borderColor: '#333' } };
+      
+      const initCharts = () => { bsModal = new bootstrap.Modal(document.getElementById('mainModal')); renderCharts(); }
+
+      const renderCharts = () => {
+        const data = filteredData.value;
+        
+        // GERAL
+        if (view.value === 'geral') {
+          const tG = _.groupBy(data, 'tecnico');
+          const tCatsRaw = Object.keys(tG).sort((a, b) => tG[b].length - tG[a].length);
+          const tCatsDisplay = tCatsRaw.map(n => {
+              if (!n) return "N/A";
+              const p = n.toString().trim().split(' ');
+              return p.length > 1 ? `${p[0]} ${p[1]}` : p[0];
+          });
+          const tVal = tCatsRaw.map(v => tG[v].length);
+          
+          const elT = document.querySelector("#chart-tecnicos");
+          if (elT) { 
+            elT.innerHTML=''; 
+            new ApexCharts(elT, { 
+              ...chartOpts, 
+              series: [{name:'OS', data:tVal}], 
+              chart:{
+                type:'bar', height:350,
+                events:{ dataPointSelection:(e,c,cfg)=>openModal('Tec: '+tCatsRaw[cfg.dataPointIndex], tG[tCatsRaw[cfg.dataPointIndex]]) }
+              }, 
+              colors:['#0060B1'], 
+              plotOptions:{ bar:{ distributed:true, borderRadius:4, dataLabels: { position: 'top' } } }, 
+              dataLabels: { enabled: true, offsetY: -20, style: { fontSize: '12px', colors: ["#fff"] } },
+              xaxis:{
+                categories:tCatsDisplay, 
+                labels:{ style:{colors:'#fff', fontSize: '11px'}, rotate: -45, trim: false, hideOverlappingLabels: false }
+              }, 
+              legend:{show:false} 
+            }).render(); 
+          }
+
+          const hG = _.groupBy(data, 'hora');
+          const hCats = Object.keys(hG).filter(k=>!['N/A','-'].includes(k)).sort((a,b)=>parseInt(a)-parseInt(b));
+          const hVal = hCats.map(k => hG[k].length);
+          const elH = document.querySelector("#chart-horas");
+          if (elH) { elH.innerHTML=''; new ApexCharts(elH, { ...chartOpts, series: [{name:'OS', data:hVal}], chart:{type:'bar', height:300, events:{dataPointSelection:(e,c,cfg)=>openModal('Hora: '+hCats[cfg.dataPointIndex], hG[hCats[cfg.dataPointIndex]])}}, colors:['#FF6500'], xaxis:{categories:hCats, labels:{style:{colors:'#aaa'}}} }).render(); }
+
+          const dG = _.groupBy(data, 'dataIso');
+          const dCats = Object.keys(dG).sort();
+          const dVal = dCats.map(k => dG[k].length);
+          const dLbl = dCats.map(d => d.split('-').reverse().join('/'));
+          const elL = document.querySelector("#chart-timeline");
+          if (elL) { elL.innerHTML=''; new ApexCharts(elL, { ...chartOpts, series: [{name:'OS', data:dVal}], chart:{type:'area', height:250}, colors:['#00f2ff'], xaxis:{categories:dLbl, labels:{style:{colors:'#aaa'}}} }).render(); }
+        }
+        
+        // FINANCEIRO
+        if (view.value === 'financeiro') {
+          const div = data.filter(x => x.temDivergencia);
+          const pG = _.groupBy(div, 'problemaGeral');
+          const pCats = Object.keys(pG).filter(k=>!['N/A','-'].includes(k));
+          const pVal = pCats.map(k => _.sumBy(pG[k], 'custo'));
+          const elC = document.querySelector("#chart-custos");
+          if (elC) { elC.innerHTML=''; new ApexCharts(elC, { ...chartOpts, series: [{name:'Custo', data:pVal}], chart:{type:'bar', height:320}, colors:['#FF6500'], plotOptions:{bar:{horizontal:true, borderRadius:4}}, xaxis:{categories:pCats, labels:{style:{colors:'#fff'}}}, dataLabels:{formatter:(v)=>new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format(v)} }).render(); }
+        }
+        
+        // QUARENTENA
+        if (view.value === 'quarentena') {
+           const quar = data.filter(r => r.consideracoes === 'Quarentena');
+           const qG = _.groupBy(quar, 'tecnico');
+           const qCats = Object.keys(qG);
+           const qVal = Object.values(qG).map(v => v.length);
+           
+           const elQ = document.querySelector("#chart-quarentena-tec");
+           if (elQ) {
+             elQ.innerHTML = '';
+             new ApexCharts(elQ, {
+               ...chartOpts,
+               series: [{name:'Quarentena', data:qVal}],
+               chart: { 
+                 type: 'bar', height: 300,
+                 events: {
+                   dataPointSelection: (e, c, cfg) => {
+                     const tecName = qCats[cfg.dataPointIndex];
+                     openQuarentenaTecModal(tecName);
+                   }
+                 }
+               },
+               colors: ['#0060B1'],
+               plotOptions: { bar: { borderRadius: 4, distributed: true } },
+               xaxis: { categories: qCats, labels: { style: { colors: '#fff' } } },
+               legend: { show: false }
+             }).render();
+           }
+        }
+      };
+
+      watch([view, filteredData], () => nextTick(renderCharts));
+
+      return { loading, loadProgress, loadingMessage, showErrorBtn, rawData, lastUpdate, filteredData, kpi, tables, view, filterStart, filterEnd, months, years, currentMonthIdx, selectedYear, selectMonth, selectYear, fetchData, forceRefresh, formatBRL, scrollTo, exportCSV, openModal, modalTitle, modalRows, modalStats, showPeriodDropdown, periodLabel, closeDropdownOnClickOutside, searchOS, searchMachine, dossieData, searchPerformed, getBadgeClass };
+    }
+  }).mount('#app');
+</script>
