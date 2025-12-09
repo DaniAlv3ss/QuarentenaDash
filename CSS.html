@@ -1,0 +1,106 @@
+<style>
+  /* --- DESIGN SYSTEM --- */
+  :root {
+    --bg-dark: #121214; 
+    --card-bg: #1A1A1E; 
+    --kabum-orange: #FF6500; 
+    --kabum-blue: #0060B1; 
+    --text-primary: #FFFFFF; 
+    --text-secondary: #A8A8B3; 
+    --border-color: rgba(255, 255, 255, 0.1); 
+    --modal-bg: #1A1A1E;
+    --success-green: #00C851; 
+    --danger-red: #ff4444;
+  }
+  body { background-color: var(--bg-dark); color: var(--text-primary); font-family: 'Poppins', sans-serif; overflow-x: hidden; }
+  h1, h2, h3, h4, h5, .tech-font { font-family: 'Chakra Petch', sans-serif; text-transform: uppercase; letter-spacing: 1px; }
+
+  /* Loading */
+  #loading-overlay { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: radial-gradient(circle at center, #1a1a1a 0%, #000000 100%); z-index: 9999; display: flex; flex-direction: column; justify-content: center; align-items: center; }
+  .neon-logo { font-size: 5rem; font-weight: 700; color: transparent; -webkit-text-stroke: 2px var(--kabum-orange); text-shadow: 0 0 20px var(--kabum-orange); animation: flicker 2s infinite alternate; }
+  .loading-bar { width: 300px; height: 4px; background: #333; margin-top: 30px; position: relative; overflow: hidden; }
+  .loading-fill { position: absolute; left: 0; top: 0; height: 100%; background: var(--kabum-orange); width: 0%; transition: width 0.3s; }
+
+  /* Navbar */
+  .navbar { background: rgba(26, 26, 30, 0.95); border-bottom: 2px solid var(--kabum-orange); padding: 1rem 0; z-index: 1000; }
+  
+  /* Period Dropdown */
+  .period-container { position: relative; }
+  .btn-period-trigger {
+    background: transparent; border: 1px solid var(--border-color); color: var(--text-primary);
+    font-family: 'Chakra Petch'; font-weight: 600; padding: 8px 15px; border-radius: 6px;
+    display: flex; align-items: center; gap: 10px; transition: 0.3s; min-width: 200px; justify-content: space-between;
+  }
+  .btn-period-trigger:hover, .btn-period-trigger.active { border-color: var(--kabum-orange); background: rgba(255, 101, 0, 0.1); color: white; }
+  
+  .period-dropdown-menu {
+    position: absolute; top: 110%; left: 0; background: var(--card-bg); border: 1px solid var(--kabum-orange);
+    border-radius: 8px; box-shadow: 0 10px 30px rgba(0,0,0,0.8); z-index: 1001;
+    display: flex; overflow: hidden; min-width: 300px; animation: slideDown 0.2s ease-out;
+  }
+  .period-col { padding: 10px; display: flex; flex-direction: column; gap: 5px; max-height: 400px; overflow-y: auto; }
+  .period-col-left { border-right: 1px solid var(--border-color); flex: 1; }
+  .period-col-right { width: 100px; background: rgba(0,0,0,0.2); }
+  .period-header { font-size: 0.7rem; color: var(--text-secondary); text-transform: uppercase; margin-bottom: 5px; padding-left: 8px; font-family: 'Chakra Petch'; }
+  .btn-period-item { background: transparent; border: none; color: #ccc; text-align: left; padding: 6px 12px; border-radius: 4px; font-size: 0.9rem; font-family: 'Poppins'; transition: 0.2s; width: 100%; }
+  .btn-period-item:hover { background: rgba(255,255,255,0.05); color: white; }
+  .btn-period-item.active { background: var(--kabum-orange); color: white; font-weight: 600; }
+  .btn-period-item.year-item { text-align: center; }
+
+  /* Cards & UI */
+  .tech-card { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 4px; padding: 20px; height: 100%; transition: 0.3s; position: relative; }
+  .tech-card:hover { border-color: var(--kabum-orange); transform: translateY(-3px); box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+  .clickable-card { cursor: pointer; }
+  .card-header-tech { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 15px; margin-bottom: 15px; }
+  .card-title { font-size: 1rem; color: #E0E0E0; font-weight: 600; text-transform: uppercase; }
+  .click-hint { position: absolute; bottom: 15px; right: 15px; font-size: 0.75rem; color: var(--kabum-orange); opacity: 0; transition: 0.3s; font-family: 'Chakra Petch'; text-transform: uppercase; }
+  .clickable-card:hover .click-hint { opacity: 1; }
+  
+  .btn-card-action { background: transparent; border: 1px solid var(--border-color); color: var(--text-secondary); font-size: 0.7rem; padding: 4px 8px; border-radius: 4px; transition: all 0.3s; }
+  .btn-card-action:hover { border-color: var(--kabum-orange); color: var(--kabum-orange); }
+
+  .kpi-big { font-size: 2.5rem; font-weight: 700; line-height: 1; }
+  .kpi-sub { font-size: 0.8rem; color: var(--text-secondary); margin-top: 5px; }
+
+  /* Table & Modal */
+  .table-tech { width: 100%; border-collapse: separate; border-spacing: 0 4px; }
+  .table-tech th { color: var(--kabum-orange); font-family: 'Chakra Petch'; padding: 10px; font-size: 0.8rem; border-bottom: 1px solid var(--border-color); }
+  .table-tech td { background: rgba(255,255,255,0.03); padding: 10px; font-size: 0.9rem; color: #ddd; }
+  .table-tech tr:hover td { background: rgba(0, 150, 255, 0.1); color: white; border-left: 2px solid var(--kabum-orange); }
+  .table-clickable tbody tr { cursor: pointer; }
+  .table-tech tfoot td { background: rgba(255, 101, 0, 0.1); color: white; font-weight: 700; border-top: 1px solid var(--kabum-orange); }
+  .modal-content { background-color: var(--modal-bg); border: 1px solid var(--kabum-blue); color: var(--text-primary); }
+  .btn-close { filter: invert(1); }
+  .badge-custom { padding: 4px 8px; border-radius: 4px; font-size: 0.8rem; border: 1px solid currentColor; }
+  .modal-stat-card { background: rgba(255,255,255,0.03); border: 1px solid var(--border-color); border-radius: 8px; padding: 15px; text-align: center; }
+  .modal-stat-val { font-size: 1.5rem; font-weight: 700; color: white; }
+  .modal-stat-label { font-size: 0.7rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 1px; }
+
+  .nav-tabs-c { display: flex; gap: 15px; border-bottom: 1px solid var(--border-color); margin-bottom: 25px; }
+  .tab-item { background: none; border: none; color: var(--text-secondary); padding: 10px 20px; font-family: 'Chakra Petch'; font-weight: 600; cursor: pointer; transition: 0.3s; border-bottom: 3px solid transparent; }
+  .tab-item.active { color: var(--kabum-orange); border-bottom-color: var(--kabum-orange); text-shadow: 0 0 10px rgba(255, 101, 0, 0.3); }
+  .tab-item:hover { color: white; }
+
+  /* DOSSIÊ / HISTÓRICO */
+  .timeline-container { position: relative; padding: 20px 0; }
+  .timeline-container::before { content: ''; position: absolute; left: 20px; top: 0; bottom: 0; width: 2px; background: rgba(255,255,255,0.1); }
+  .timeline-item { position: relative; padding-left: 50px; margin-bottom: 40px; }
+  .timeline-icon { position: absolute; left: 0; top: 0; width: 40px; height: 40px; border-radius: 50%; background: var(--card-bg); border: 2px solid var(--kabum-blue); display: flex; align-items: center; justify-content: center; z-index: 2; color: var(--text-primary); }
+  .timeline-icon.success { border-color: var(--success-green); color: var(--success-green); box-shadow: 0 0 10px rgba(0,200,81,0.2); }
+  .timeline-icon.danger { border-color: var(--danger-red); color: var(--danger-red); box-shadow: 0 0 10px rgba(255,68,68,0.2); }
+  .timeline-icon.warning { border-color: var(--kabum-orange); color: var(--kabum-orange); box-shadow: 0 0 10px rgba(255,101,0,0.2); }
+  
+  .timeline-content { background: rgba(255,255,255,0.03); border: 1px solid var(--border-color); border-radius: 6px; padding: 15px; position: relative; }
+  .timeline-content::before { content: ''; position: absolute; left: -8px; top: 12px; width: 15px; height: 15px; background: inherit; border-left: 1px solid var(--border-color); border-bottom: 1px solid var(--border-color); transform: rotate(45deg); }
+  
+  .t-label { font-size: 0.7rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 1px; }
+  .t-value { font-size: 1rem; color: white; font-weight: 500; }
+  .t-time { font-family: 'Chakra Petch'; font-size: 0.9rem; color: var(--kabum-orange); text-align: right; }
+  
+  .search-box input { background: rgba(255,255,255,0.05); border: 1px solid var(--border-color); color: white; padding: 12px 20px; border-radius: 6px; width: 100%; font-family: 'Chakra Petch'; }
+  .search-box input:focus { outline: none; border-color: var(--kabum-orange); box-shadow: 0 0 15px rgba(255,101,0,0.1); }
+  .search-box input::placeholder { color: rgba(255,255,255,0.7) !important; opacity: 1; }
+
+  @keyframes slideDown { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
+  @keyframes flicker { 0%, 100% { opacity: 1; text-shadow: 0 0 20px var(--kabum-orange); } 50% { opacity: 0.8; text-shadow: 0 0 5px var(--kabum-orange); } }
+</style>
